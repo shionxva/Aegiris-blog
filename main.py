@@ -12,6 +12,7 @@ import models
 from database import Base, engine, get_db
 from contextlib import asynccontextmanager
 from routers import users, posts
+import mimetypes
 
 
 @asynccontextmanager
@@ -22,6 +23,9 @@ async def lifespan(_app: FastAPI):
     await engine.dispose()
 
 app = FastAPI(lifespan=lifespan)
+
+# Fix Windows MIME type issue
+mimetypes.add_type("application/javascript", ".js")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/media", StaticFiles(directory="media"), name="media")
@@ -34,7 +38,10 @@ app.include_router(posts.router, prefix="/api/posts", tags=["posts"])
 @app.get("/", include_in_schema=False, name="home")
 @app.get("/posts", include_in_schema=False, name="posts")
 async def home(request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)))
+    result = await db.execute(
+        select(models.Post).options(selectinload(models.Post.author))
+        .order_by(models.Post.date_posted.desc())
+    )
     posts = result.scalars().all()
     return templates.TemplateResponse(
         request,
@@ -59,7 +66,10 @@ async def user_posts_page(request: Request, user_id: int, db: Annotated[AsyncSes
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         
-    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).where(models.Post.user_id == user_id))
+    result = await db.execute(
+        select(models.Post).options(selectinload(models.Post.author)).where(models.Post.user_id == user_id)
+        .order_by(models.Post.date_posted.desc())
+        )
     posts = result.scalars().all()
     return templates.TemplateResponse(request, "user_posts.html", {"posts": posts, "user": user, "title": f"{user.username}'s posts"})      
     
